@@ -1,1 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Inventory Asset System</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs/qrcode.min.js"></script>
+  <!-- Add the QuaggaJS library for barcode scanning -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+  <!-- Add Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js"></script>
+</head>
+<body class="bg-gray-100 flex flex-col min-h-screen">
+
+  <!-- SETUP PASSWORD PAGE -->
+  <section id="setupPasswordPage" class="flex flex-col items-center justify-center min-h-screen bg-gray-200 hidden">
+    <div class="bg-white p-6 rounded-2xl shadow-lg w-80">
+      <h2 class="text-xl font-bold text-center mb-4">Setup Admin Account</h2>
+      <input id="setupEmail" type="email" placeholder="Admin Email" class="w-full mb-3 p-2 border rounded">
+      <input id="setupPassword" type="password" placeholder="Password" class="w-full mb-3 p-2 border rounded">
+      <button onclick="setupAdminAccount()" class="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700">Setup</button>
+      <p id="setupError" class="text-red-500 text-sm text-center mt-2 hidden"></p>
+    </div>
+  </section>
+
+  <!-- LOGIN PAGE -->
+  <section id="loginPage" class="flex flex-col items-center justify-center min-h-screen bg-gray-200 hidden">
+    <div class="bg-white p-6 rounded-2xl shadow-lg w-80">
+      <h2 class="text-xl font-bold text-center mb-4">Login</h2>
+      <input id="username" type="text" placeholder="Username" class="w-full mb-3 p-2 border rounded">
+      <input id="password" type="password" placeholder="Password" class="w-full mb-3 p-2 border rounded">
+      <button onclick="login()" class="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700">Login</button>
+      <p id="loginError" class="text-red-500 text-sm text-center mt-2 hidden">Invalid credentials</p>
+    </div>
+  </section>
+
+  <!-- MAIN APP -->
+  <section id="mainApp" class="hidden flex-1 flex-col">
+
+    <!-- Header -->
+    <header class="bg-blue-600 text-white p-4 flex justify-between items-center">
+      <h1 class="text-xl font-bold">Inventory Asset System</h1>
+      <button onclick="logout()" class="bg-red-500 px-3 py-1 rounded">Logout</button>
+    </header>
+
+    <!-- Tab Navigation -->
+    <div class="bg-gray-200 flex space-x-2 p-2">
+      <button onclick="showTab('assetsTab')" class="tab-btn bg-white px-4 py-2 rounded shadow">Assets</button>
+      <button onclick="showTab('acquireTab')" class="tab-btn px-4 py-2 rounded">Acquire/Lend</button>
+    </div>
+
+    <!-- Assets Tab -->
+    <div id="assetsTab" class="tab-content p-4">
+      <h2 class="text-lg font-bold mb-4">Asset List</h2>
+      <div class="flex justify-between items-center mb-4">
+        <input id="searchAsset" placeholder="Search Asset" class="p-2 border rounded w-1/2" oninput="searchAssets()">
+        <div>
+          <button onclick="toggleAssetList()" class="bg-gray-600 text-white px-4 py-2 rounded">Hide/Show List</button>
+          <button onclick="deleteSelectedAssets()" class="bg-red-600 text-white px-4 py-2 rounded">Delete Selected</button>
+        </div>
+      </div>
+      <form onsubmit="addAsset(event)" class="grid md:grid-cols-5 gap-2 mb-4">
+        <input id="assetName" placeholder="Asset Name" required class="p-2 border rounded">
+        <select id="assetCategory" class="p-2 border rounded">
+          <option>Office Supplies</option>
+          <option>Machineries</option>
+          <option>Furniture</option>
+          <option>Electronics</option>
+        </select>
+        <input id="assetDate" type="date" required class="p-2 border rounded">
+        <input id="assetQty" type="number" min="1" placeholder="Quantity" required class="p-2 border rounded">
+        <button class="bg-green-600 text-white rounded px-3">Add</button>
+      </form>
+      <div class="mb-4">
+        <button onclick="startScanner()" class="bg-blue-600 text-white px-4 py-2 rounded">Scan Barcode/QR</button>
+        <div id="scanner" class="hidden mt-4"></div>
+      </div>
+      <table id="assetListTable" class="w-full bg-white shadow rounded overflow-hidden">
+        <thead class="bg-gray-300">
+          <tr>
+            <th class="p-2"><input type="checkbox" onclick="toggleSelectAll('assetTable', this)"></th>
+            <th class="p-2">ID</th>
+            <th class="p-2">Name</th>
+            <th class="p-2">Category</th>
+            <th class="p-2">Date</th>
+            <th class="p-2">Quantity</th>
+            <th class="p-2">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="assetTable"></tbody>
+      </table>
+    </div>
+
+    <!-- Acquire/Lend Tab -->
+    <div id="acquireTab" class="tab-content p-4 hidden">
+      <h2 class="text-lg font-bold mb-4">Acquire / Lend Item</h2>
+      <div class="flex justify-between items-center mb-4">
+        <button onclick="toggleAcquireList()" class="bg-gray-600 text-white px-4 py-2 rounded">Hide/Show List</button>
+        <button onclick="deleteSelectedAcquires()" class="bg-red-600 text-white px-4 py-2 rounded">Delete Selected</button>
+      </div>
+      <form onsubmit="acquireItem(event)" class="grid md:grid-cols-5 gap-2 mb-4">
+        <input id="acquireAsset" placeholder="Search Asset" required class="p-2 border rounded" oninput="autoCompleteAsset()">
+        <div id="autoCompleteList" class="bg-white border rounded shadow hidden"></div>
+        <input id="acquireDate" type="date" required class="p-2 border rounded">
+        <input id="acquirePurpose" placeholder="Purpose" required class="p-2 border rounded">
+        <select id="acquireType" class="p-2 border rounded">
+          <option value="Acquire">Acquire</option>
+          <option value="Lend">Lend</option>
+        </select>
+        <input id="acquireQty" type="number" min="1" placeholder="Quantity" required class="p-2 border rounded">
+        <button class="bg-blue-600 text-white rounded px-3">Save</button>
+      </form>
+      <table id="acquireListTable" class="w-full bg-white shadow rounded overflow-hidden">
+        <thead class="bg-gray-300">
+          <tr>
+            <th class="p-2"><input type="checkbox" onclick="toggleSelectAll('acquireTable', this)"></th>
+            <th class="p-2">Item</th>
+            <th class="p-2">Date</th>
+            <th class="p-2">Purpose</th>
+            <th class="p-2">Type</th>
+            <th class="p-2">Quantity</th>
+          </tr>
+        </thead>
+        <tbody id="acquireTable"></tbody>
+      </table>
+    </div>
+
+  </section>
+
+  <script>
+    // Initialize Firebase
+    const firebaseConfig = {
+      apiKey: "AIzaSyBIa-6xWY5bjm9wdI4uLST3WsOy7jscl6M",
+      authDomain: "ivas-96990.firebaseapp.com",
+      projectId: "ivas-96990",
+      storageBucket: "ivas-96990.firebasestorage.app",
+      messagingSenderId: "537536490580",
+      appId: "1:537536490580:web:5c89c02295593e4aa011c1",
+      measurementId: "G-S0HMJN8B6F"
+    };
+    const app = firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+
+    let assets = [];
+    let acquires = [];
+
+    // Check if admin account exists
+    async function checkAdminAccount() {
+      const users = await auth.fetchSignInMethodsForEmail("admin@example.com");
+      if (users.length === 0) {
+        document.getElementById("setupPasswordPage").classList.remove("hidden");
+      } else {
+        document.getElementById("loginPage").classList.remove("hidden");
+      }
+    }
+
+    // Setup admin account
+    async function setupAdminAccount() {
+      const email = document.getElementById("setupEmail").value;
+      const password = document.getElementById("setupPassword").value;
+      try {
+        await auth.createUserWithEmailAndPassword(email, password);
+        alert("Admin account created successfully!");
+        document.getElementById("setupPasswordPage").classList.add("hidden");
+        document.getElementById("loginPage").classList.remove("hidden");
+      } catch (error) {
+        document.getElementById("setupError").textContent = error.message;
+        document.getElementById("setupError").classList.remove("hidden");
+      }
+    }
+
+    // Login function
+    async function login() {
+      const user = document.getElementById("username").value;
+      const pass = document.getElementById("password").value;
+      try {
+        await auth.signInWithEmailAndPassword(user, pass);
+        document.getElementById("loginPage").classList.add("hidden");
+        document.getElementById("mainApp").classList.remove("hidden");
+      } catch (error) {
+        document.getElementById("loginError").classList.remove("hidden");
+      }
+    }
+
+    // Logout function
+    function logout() {
+      auth.signOut().then(() => {
+        document.getElementById("mainApp").classList.add("hidden");
+        document.getElementById("loginPage").classList.remove("hidden");
+      });
+    }
+
+    // Tab navigation
+    function showTab(tabId) {
+      document.querySelectorAll(".tab-content").forEach(el => el.classList.add("hidden"));
+      document.getElementById(tabId).classList.remove("hidden");
+      document.querySelectorAll(".tab-btn").forEach(btn => btn.classList.remove("bg-white", "shadow"));
+      event.target.classList.add("bg-white", "shadow");
+    }
+
+    // Add asset to Firebase
+    async function addAsset(e) {
+      e.preventDefault();
+      const date = new Date();
+      const formattedDate = `${date.getMonth() + 1}${date.getDate()}${date.getFullYear()}`;
+      const id = `CBL-${formattedDate}-ASST`;
+      const name = document.getElementById("assetName").value;
+      const cat = document.getElementById("assetCategory").value;
+      const assetDate = document.getElementById("assetDate").value;
+      const qty = parseInt(document.getElementById("assetQty").value, 10);
+
+      const asset = { id, name, cat, date: assetDate, qty };
+      try {
+        await db.collection("assets").doc(id).set(asset);
+        assets.push(asset);
+        renderAssets();
+        e.target.reset();
+      } catch (error) {
+        alert("Error adding asset: " + error.message);
+      }
+    }
+
+    // Fetch assets from Firebase
+    async function fetchAssets() {
+      try {
+        const snapshot = await db.collection("assets").get();
+        assets = snapshot.docs.map(doc => doc.data());
+        renderAssets();
+      } catch (error) {
+        alert("Error fetching assets: " + error.message);
+      }
+    }
+
+    function searchAssets() {
+      const query = document.getElementById("searchAsset").value.toLowerCase();
+      document.querySelectorAll("#assetTable tr").forEach(row => {
+        const name = row.querySelector("td:nth-child(2)")?.textContent.toLowerCase();
+        row.style.display = name && name.includes(query) ? "" : "none";
+      });
+    }
+
+    function autoCompleteAsset() {
+      const input = document.getElementById("acquireAsset").value.toLowerCase();
+      const list = document.getElementById("autoCompleteList");
+      list.innerHTML = "";
+      if (!input) {
+        list.classList.add("hidden");
+        return;
+      }
+      assets
+        .filter(a => a.name.toLowerCase().includes(input))
+        .forEach(a => {
+          const item = document.createElement("div");
+          item.textContent = a.name;
+          item.className = "p-2 hover:bg-gray-200 cursor-pointer";
+          item.onclick = () => {
+            document.getElementById("acquireAsset").value = a.name;
+            list.classList.add("hidden");
+          };
+          list.appendChild(item);
+        });
+      list.classList.remove("hidden");
+    }
+
+    function showAssetActions(index) {
+      const asset = assets[index];
+      const modal = document.createElement("div");
+      modal.className = "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center";
+      modal.innerHTML = `
+        <div class="bg-white p-6 rounded shadow-lg">
+          <h2 class="text-lg font-bold mb-4">Asset Actions</h2>
+          <p><strong>ID:</strong> ${asset.id}</p>
+          <p><strong>Name:</strong> ${asset.name}</p>
+          <p><strong>Category:</strong> ${asset.cat}</p>
+          <p><strong>Date:</strong> ${asset.date}</p>
+          <p><strong>Quantity:</strong> ${asset.qty}</p>
+          <div id="stickerPreview" class="mt-4 hidden">
+            <h3 class="text-md font-bold mb-2">Sticker Preview</h3>
+            <div style="width:3in;height:1in;border:1px solid black;margin:5px;display:flex;align-items:center;justify-content-between;padding:5px;">
+              <span style="font-size:12px;">${asset.id}</span>
+              <div id="qr-${asset.id}"></div>
+            </div>
+            <button onclick="printSticker('${asset.id}')" class="mt-2 bg-green-600 text-white px-4 py-2 rounded">Print Sticker</button>
+          </div>
+          <div class="mt-4 flex space-x-2">
+            <button onclick="editAsset(${index})" class="bg-blue-600 text-white px-4 py-2 rounded">Edit</button>
+            <button onclick="deleteAsset(${index}); closeModal()" class="bg-red-600 text-white px-4 py-2 rounded">Delete</button>
+            <button onclick="prepareAcquire(${index}); closeModal()" class="bg-green-600 text-white px-4 py-2 rounded">Acquire/Lend</button>
+            <button onclick="generateSticker('${asset.id}')" class="bg-purple-600 text-white px-4 py-2 rounded">Generate Sticker</button>
+          </div>
+          <button onclick="closeModal()" class="mt-4 bg-gray-600 text-white px-4 py-2 rounded">Close</button>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    }
+
+    function closeModal() {
+      document.querySelector(".fixed.inset-0").remove();
+    }
+
+    function prepareAcquire(index) {
+      const asset = assets[index];
+      document.getElementById("acquireAsset").value = asset.name;
+      showTab("acquireTab");
+    }
+
+    function startScanner() {
+      const scannerDiv = document.getElementById("scanner");
+      scannerDiv.classList.remove("hidden");
+      Quagga.init(
+        {
+          inputStream: {
+            name: "Live",
+            type: "LiveStream",
+            target: scannerDiv,
+          },
+          decoder: {
+            readers: ["code_128_reader", "qr_reader"],
+          },
+        },
+        function (err) {
+          if (err) {
+            console.error(err);
+            return;
+          }
+          Quagga.start();
+        }
+      );
+      Quagga.onDetected(function (data) {
+        const code = data.codeResult.code;
+        document.getElementById("assetName").value = code;
+        Quagga.stop();
+        scannerDiv.classList.add("hidden");
+      });
+    }
+
+    function toggleSelectAll(tableId, checkbox) {
+      const rows = document.querySelectorAll(`#${tableId} input[type="checkbox"]`);
+      rows.forEach(row => (row.checked = checkbox.checked));
+    }
+
+    function deleteSelectedAssets() {
+      const rows = document.querySelectorAll("#assetTable input[type='checkbox']:checked");
+      rows.forEach(row => {
+        const index = row.getAttribute("data-index");
+        assets.splice(index, 1);
+      });
+      renderAssets();
+    }
+
+    function deleteSelectedAcquires() {
+      const rows = document.querySelectorAll("#acquireTable input[type='checkbox']:checked");
+      rows.forEach(row => {
+        const index = row.getAttribute("data-index");
+        acquires.splice(index, 1);
+      });
+      renderAcquires();
+    }
+
+    function toggleAssetList() {
+      const table = document.getElementById("assetListTable");
+      table.classList.toggle("hidden");
+    }
+
+    function toggleAcquireList() {
+      const table = document.getElementById("acquireListTable");
+      table.classList.toggle("hidden");
+    }
+
+    function renderAssets() {
+      const tbody = document.getElementById("assetTable");
+      tbody.innerHTML = "";
+      assets.forEach((a, i) => {
+        tbody.innerHTML += `
+          <tr class="border-t">
+            <td class="p-2"><input type="checkbox" data-index="${i}"></td>
+            <td class="p-2">${a.id}</td>
+            <td class="p-2">${a.name}</td>
+            <td class="p-2">${a.cat}</td>
+            <td class="p-2">${a.date}</td>
+            <td class="p-2">${a.qty}</td>
+            <td class="p-2">
+              <button onclick="showAssetActions(${i})" class="bg-blue-600 text-white px-2 rounded">Actions</button>
+            </td>
+          </tr>
+        `;
+      });
+    }
+
+    function updateAssetDropdown() {
+      const select = document.getElementById("acquireAsset");
+      select.innerHTML = "";
+      assets.forEach(a => {
+        select.innerHTML += `<option value="${a.name}">${a.name}</option>`;
+      });
+    }
+
+    function deleteAsset(i) {
+      assets.splice(i, 1);
+      renderAssets();
+      updateAssetDropdown();
+    }
+
+    // Acquire/Lend item and save to Firebase
+    async function acquireItem(e) {
+      e.preventDefault();
+      const itemName = document.getElementById("acquireAsset").value;
+      const date = document.getElementById("acquireDate").value;
+      const purpose = document.getElementById("acquirePurpose").value;
+      const type = document.getElementById("acquireType").value;
+      const qty = parseInt(document.getElementById("acquireQty").value, 10);
+
+      const asset = assets.find(a => a.name === itemName);
+      if (!asset) {
+        alert("Asset not found!");
+        return;
+      }
+
+      if (type === "Acquire" && asset.qty < qty) {
+        alert("Insufficient quantity in stock!");
+        return;
+      }
+
+      if (type === "Acquire") {
+        asset.qty -= qty;
+      } else if (type === "Lend") {
+        asset.qty += qty;
+      }
+
+      const transaction = { item: itemName, date, purpose, type, qty };
+      try {
+        await db.collection("transactions").add(transaction);
+        await db.collection("assets").doc(asset.id).update({ qty: asset.qty });
+        acquires.push(transaction);
+        renderAssets();
+        renderAcquires();
+        e.target.reset();
+      } catch (error) {
+        alert("Error processing transaction: " + error.message);
+      }
+    }
+
+    // Fetch transactions from Firebase
+    async function fetchTransactions() {
+      try {
+        const snapshot = await db.collection("transactions").get();
+        acquires = snapshot.docs.map(doc => doc.data());
+        renderAcquires();
+      } catch (error) {
+        alert("Error fetching transactions: " + error.message);
+      }
+    }
+
+    // Initialize data on page load
+    auth.onAuthStateChanged(user => {
+      if (user) {
+        document.getElementById("loginPage").classList.add("hidden");
+        document.getElementById("mainApp").classList.remove("hidden");
+        fetchAssets();
+        fetchTransactions();
+      } else {
+        document.getElementById("mainApp").classList.add("hidden");
+        document.getElementById("loginPage").classList.remove("hidden");
+        checkAdminAccount();
+      }
+    });
+  </script>
+</body>
+</html>
 
